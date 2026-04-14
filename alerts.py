@@ -5,60 +5,73 @@ Gestisce l'invio di email per:
 - Alert di acquisto (segnali BUY)
 - Alert di vendita (segnali SELL)
 - Report giornaliero
+
+Email via Resend API (HTTPS) — non bloccato da Railway/hosting.
 """
 
-import smtplib
-import ssl
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import Dict
 import os
 
+try:
+    import resend as _resend
+    RESEND_AVAILABLE = True
+except ImportError:
+    RESEND_AVAILABLE = False
+    print("Libreria 'resend' non installata. Installa con: pip install resend")
+
 
 class AlertSystem:
-    """Sistema di alert via email per ETF"""
+    """Sistema di alert via email (Resend API)"""
 
     def __init__(self, sender_email: str = None, sender_password: str = None,
                  recipient_email: str = None):
-        self.sender_email = sender_email or os.getenv('EMAIL_SENDER', '')
-        self.sender_password = sender_password or os.getenv('EMAIL_PASSWORD', '')
+        """
+        Args:
+            sender_email:    Indirizzo mittente (dominio verificato Resend).
+                             Default: EMAIL_SENDER dall'env.
+            sender_password: Ignorato (legacy, mantenuto per compatibilita').
+            recipient_email: Email destinatario. Default: EMAIL_RECIPIENT dall'env.
+        """
+        self.sender_email = sender_email or os.getenv('EMAIL_SENDER', 'onboarding@resend.dev')
         self.recipient_email = recipient_email or os.getenv('EMAIL_RECIPIENT', 'andreapavan67@gmail.com')
+        self.resend_api_key = os.getenv('RESEND_API_KEY', '')
 
-        self.smtp_server = "smtp.gmail.com"
-        self.smtp_port = 587
+        if RESEND_AVAILABLE and self.resend_api_key:
+            _resend.api_key = self.resend_api_key
 
     def _send_email(self, subject: str, body_html: str, body_text: str = None) -> bool:
-        """Invia email via SMTP"""
-        if not all([self.sender_email, self.sender_password, self.recipient_email]):
-            print(f"Configurazione email incompleta - email non inviata")
+        """Invia email tramite Resend API"""
+        if not RESEND_AVAILABLE:
+            print("Resend non disponibile — installa con: pip install resend")
             print(f"   Subject: {subject}")
             return False
 
+        if not self.resend_api_key:
+            print("RESEND_API_KEY non configurata — email non inviata")
+            print(f"   Subject: {subject}")
+            return False
+
+        if not self.recipient_email:
+            print("EMAIL_RECIPIENT non configurata — email non inviata")
+            return False
+
         try:
-            message = MIMEMultipart("alternative")
-            message["Subject"] = subject
-            message["From"] = self.sender_email
-            message["To"] = self.recipient_email
-
+            params: _resend.Emails.SendParams = {
+                "from": f"ETF Monitor <{self.sender_email}>",
+                "to": [self.recipient_email],
+                "subject": subject,
+                "html": body_html,
+            }
             if body_text:
-                part1 = MIMEText(body_text, "plain")
-                message.attach(part1)
+                params["text"] = body_text
 
-            part2 = MIMEText(body_html, "html")
-            message.attach(part2)
-
-            context = ssl.create_default_context()
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls(context=context)
-                server.login(self.sender_email, self.sender_password)
-                server.sendmail(self.sender_email, self.recipient_email, message.as_string())
-
-            print(f"Email inviata: {subject}")
+            _resend.Emails.send(params)
+            print(f"Email inviata via Resend: {subject}")
             return True
 
         except Exception as e:
-            print(f"Errore invio email: {e}")
+            print(f"Errore invio email (Resend): {e}")
             return False
 
     def send_buy_alert(self, etf: Dict, analysis: Dict) -> bool:
@@ -320,5 +333,10 @@ class AlertSystem:
 
 
 if __name__ == "__main__":
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
     alert = AlertSystem()
     alert.send_test_email()

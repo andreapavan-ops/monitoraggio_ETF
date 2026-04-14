@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "5001:5001"
+    environment:
+      PORT: 5001
+      DATABASE_URL: postgresql://etfmonitor:${DB_PASSWORD}@postgres:5432/etfs
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_SENDER: ${EMAIL_SENDER:-onboarding@resend.dev}
+      EMAIL_RECIPIENT: ${EMAIL_RECIPIENT:-andreapavan67@gmail.com}
+      MONITOR_HOUR: ${MONITOR_HOUR:-17}
+      MONITOR_MINUTE: ${MONITOR_MINUTE:-0}
+      MONITOR_DAYS: ${MONITOR_DAYS:-1-5}
+      RUN_ON_START: ${RUN_ON_START:-true}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - etf_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: etfs
+      POSTGRES_USER: etfmonitor
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - etf_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U etfmonitor -d etfs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  etf_data:
+  etf_postgres_data:
